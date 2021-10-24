@@ -1,0 +1,22 @@
+package com.fujibas.server.dto;
+
+import java.util.List;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@NoArgsConstructor
+public class ProductRequest {
+
+    private String name;
+    private String slug;
+    private String description;
+    private String icon;
+    private Double price;
+    private Integer position;
+    private Boolean active;
+    private String options;
+    private String stockCode;
+
+    private List<PhotoRequest> photos;
+}
