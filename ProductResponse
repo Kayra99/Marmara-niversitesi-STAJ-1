@@ -1,0 +1,29 @@
+package com.fujibas.server.dto;
+
+import java.util.List;
+import javax.validation.constraints.NotBlank;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@NoArgsConstructor
+@SuppressWarnings({"PMD.TooManyFields"})
+public class ProductResponse {
+
+    private long id;
+    @NotBlank
+    private String name;
+    @NotBlank
+    private String slug;
+    private String description;
+    private String icon;
+    private Double price;
+    private Integer position;
+    private Boolean active;
+    private String options;
+    private long categoryId;
+    private String categoryName;
+    private String stockCode;
+
+    private List<PhotoResponse> photos;
+}
