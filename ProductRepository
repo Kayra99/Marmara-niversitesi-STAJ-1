@@ -1,0 +1,24 @@
+package com.fujibas.server.repository;
+
+import com.fujibas.server.model.Product;
+import java.util.List;
+import java.util.Optional;
+
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface ProductRepository extends JpaRepository<Product, Long> {
+
+    List<Product> findAllByCategoryId(long categoryId);
+    
+    List<Product> findByNameContaining(String searchCriteria);
+
+    List<Product> findAll();
+
+    Optional<Product> findByCategoryIdAndSlug(long categoryId, String slug);
+
+    Optional<Product> findByCategoryIdAndName(long categoryId, String name);
+
+}
