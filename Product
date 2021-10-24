@@ -1,0 +1,48 @@
+package com.fujibas.server.model;
+
+import static javax.persistence.CascadeType.REMOVE;
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
+import javax.persistence.Entity;
+import javax.persistence.JoinColumn;
+import javax.persistence.ManyToOne;
+import javax.persistence.OneToMany;
+import javax.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@Entity
+@Table
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@SuppressWarnings({"PMD.TooManyFields"})
+public class Product extends AbstractEntity implements Serializable {
+
+    public static final long serialVersionUID = -2723933398770614819L;
+
+    private static final String PRODUCT = "product";
+
+    private String name;
+    private String slug;
+    private String description;
+    private String icon;
+    private Double price;
+    private Integer position;
+    private Boolean active;
+    private String options;
+    private String stockCode;
+
+    @ManyToOne
+    @JoinColumn(name = "CATEGORY_ID")
+    private Category category;
+
+    @OneToMany(mappedBy = PRODUCT, cascade = REMOVE, orphanRemoval = true)
+    private List<Item> orderItems = new ArrayList<>();
+
+}
