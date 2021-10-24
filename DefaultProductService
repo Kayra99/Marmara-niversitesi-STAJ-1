@@ -1,0 +1,102 @@
+package com.fujibas.server.service;
+
+import com.fujibas.server.dto.ProductRequest;
+import com.fujibas.server.model.Product;
+import com.fujibas.server.repository.ProductRepository;
+import java.util.List;
+import javax.persistence.EntityExistsException;
+import javax.persistence.EntityNotFoundException;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+
+@Slf4j
+@Service
+public class DefaultProductService implements ProductService {
+
+    private static final String EXISTING_PRODUCT = "Existing product with slug or name.";
+
+    private final ProductRepository productRepository;
+
+    public DefaultProductService(ProductRepository productRepository) {
+        this.productRepository = productRepository;
+    }
+
+    @Override
+    public Product saveProduct(Product product) {
+        if (isProductExistByName(product.getCategory().getId(), product.getName())
+                || isProductExistBySlug(product.getCategory().getId(), product.getSlug())) {
+            throw new EntityExistsException(EXISTING_PRODUCT);
+        }
+        return productRepository.save(product);
+    }
+
+    @Override
+    public Product updateProduct(Product product, ProductRequest productRequest) {
+        if ((!product.getName().equals(productRequest.getName())
+                && isProductExistByName(product.getCategory().getId(), productRequest.getName()))
+                || (!product.getSlug().equals(productRequest.getSlug())
+                && isProductExistBySlug(product.getCategory().getId(), productRequest.getSlug()))) {
+            throw new EntityExistsException(EXISTING_PRODUCT);
+        }
+        product.setName(productRequest.getName());
+        product.setSlug(productRequest.getSlug());
+        product.setDescription(productRequest.getDescription());
+        product.setIcon(productRequest.getIcon());
+        product.setPrice(productRequest.getPrice());
+        product.setOptions(productRequest.getOptions());
+        product.setPosition(productRequest.getPosition());
+        product.setActive(productRequest.getActive());
+        product.setStockCode(productRequest.getStockCode());
+        return productRepository.save(product);
+    }
+
+    @Override
+    public void deleteProduct(long id) {
+        final Product deletedEntity = productRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Not found with id : " + id));
+        productRepository.delete(deletedEntity);
+    }
+
+    @Override
+    public Product getProductById(long id) {
+        return productRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Product not found with " + id));
+    }
+
+    @Override
+    public List<Product> getProducts(long categoryId) {
+        return productRepository.findAllByCategoryId(categoryId);
+    }
+
+    @Override
+    public List<Product> getProducts() {
+        return productRepository.findAll();
+    }
+
+    @Override
+    public List<Product> getProducts(Pageable pageable) {
+        return productRepository.findAll(pageable).getContent();
+    }
+
+    @Override
+    public long getProductsCount() {
+        return productRepository.count();
+    }
+
+    @Override
+    public Boolean isProductExistBySlug(long categoryId, String slug) {
+        return productRepository.findByCategoryIdAndSlug(categoryId, slug).isPresent();
+    }
+
+    @Override
+    public Boolean isProductExistByName(long categoryId, String name) {
+        return productRepository.findByCategoryIdAndName(categoryId, name).isPresent();
+    }
+
+	@Override
+	public List<Product> searchProducts(Pageable pageable, String searchCriteria) {
+		return productRepository.findByNameContaining(searchCriteria);
+	}
+
+}
