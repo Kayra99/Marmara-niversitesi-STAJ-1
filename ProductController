@@ -1,0 +1,276 @@
+package com.fujibas.server.api;
+
+import com.fujibas.server.dto.*;
+import com.fujibas.server.model.Category;
+import com.fujibas.server.model.ImageType;
+import com.fujibas.server.model.Photo;
+import com.fujibas.server.model.Product;
+import com.fujibas.server.pageable.Range;
+import com.fujibas.server.service.CategoryService;
+import com.fujibas.server.service.PhotoService;
+import com.fujibas.server.service.ProductService;
+import io.swagger.annotations.*;
+import org.apache.commons.lang3.StringUtils;
+import org.modelmapper.ModelMapper;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.Sort.Direction;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.stereotype.Controller;
+import org.springframework.util.CollectionUtils;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.*;
+
+import javax.validation.Valid;
+import java.util.List;
+
+import static com.fujibas.server.api.BaseController.BASE_PATH;
+import static com.fujibas.server.api.BaseController.CATEGORIES;
+import static javax.servlet.http.HttpServletResponse.*;
+
+/**
+ * Rest controller to manage products.
+ */
+@Api(tags = CATEGORIES, description = "Product service")
+@RequestMapping(path = BASE_PATH)
+@Controller
+@Validated
+public class ProductController extends BaseController {
+
+    private static final String EXISTING_CATEGORY = "Existing product with slug or name.";
+    private static final String PRODUCT_ID = "productId";
+
+    private final ProductService productService;
+    private final CategoryService categoryService;
+    private final PhotoService photoService;
+
+    public ProductController(ModelMapper mapper,
+            ProductService productService,
+            CategoryService categoryService,
+            PhotoService photoService) {
+        super(mapper);
+        this.productService = productService;
+        this.categoryService = categoryService;
+        this.photoService = photoService;
+    }
+
+    @ApiOperation(value = "Create a product (ADMIN)", tags = {CATEGORIES})
+    @ApiResponses({@ApiResponse(code = SC_OK, message = SUCCESSFUL_OPERATION),
+            @ApiResponse(code = SC_BAD_REQUEST, message = INVALID_PARAMETERS),
+            @ApiResponse(code = SC_UNAUTHORIZED, message = UNAUTHORISED),
+            @ApiResponse(code = SC_FORBIDDEN, message = FORBIDDEN),
+            @ApiResponse(code = SC_CONFLICT, message = EXISTING_CATEGORY)})
+    @PostMapping(value = "/products/{categoryId}", produces = JSON)
+    @PreAuthorize(HAS_ADMINISTRATOR_ROLE)
+    public ResponseEntity<ProductResponse> createProduct(
+            @ApiParam(required = true) @RequestHeader(TOKEN_HEADER) String authorization,
+            @PathVariable(value = "categoryId") long categoryId,
+            @Valid @RequestBody ProductRequest productRequest) {
+        final Category category = categoryService.getCategoryById(categoryId);
+        final Product product = map(productRequest, Product.class);
+        product.setCategory(category);
+        productService.saveProduct(product);
+        if(!CollectionUtils.isEmpty(productRequest.getPhotos())) {
+            for (PhotoRequest photoRequest: productRequest.getPhotos()) {
+                final Photo photo = Photo.builder()
+                        .imageableType(ImageType.PRODUCT)
+                        .imageableId(product.getId())
+                        .url(photoRequest.getUrl())
+                        .build();
+                photoService.savePhoto(photo);
+            }
+        }
+        final ProductResponse response = map(product, ProductResponse.class);
+        return ResponseEntity.ok(response);
+    }
+    
+    @ApiOperation(value = "Retrieve a list of promotions (ADMIN)", tags = {PROMOTION})
+    @ApiResponses({@ApiResponse(code = SC_OK, message = SUCCESSFUL_OPERATION),
+            @ApiResponse(code = SC_FORBIDDEN, message = FORBIDDEN),
+            @ApiResponse(code = SC_BAD_REQUEST, message = INVALID_PARAMETERS),
+            @ApiResponse(code = SC_UNAUTHORIZED, message = UNAUTHORISED)})
+    @GetMapping(value = "/products/search", produces = JSON)
+    @PreAuthorize(HAS_ADMINISTRATOR_ROLE)
+    public ResponseEntity<ProductListResponse> searchPromotions(
+            @ApiParam(required = true) @RequestHeader(TOKEN_HEADER) String authorization,
+            @ApiParam(value = "Offset value", defaultValue = "0")
+            @RequestParam(value = "offset", required = false, defaultValue = "0") int offset,
+            @ApiParam(value = "Limit of page size.", defaultValue = "25")
+            @RequestParam(required = false, defaultValue = "25") int limit,
+            @ApiParam("Name of the field to be sorted.") @RequestParam(required = false) String sortField,
+            @ApiParam("Sort order, available values are: asc, desc.")
+            @RequestParam(required = false) String sortDirection,
+            @RequestParam(value = "searchCriteria", required = false, defaultValue = "") String searchCriteria) {
+        final Sort sort = StringUtils.isEmpty(sortField) || StringUtils.isEmpty(sortDirection)
+                ? new Sort(Direction.DESC, "expiredAt")
+                : new Sort(Direction.fromString(sortDirection), sortField);
+        final Range range = new Range(offset, limit, sort);
+        final List<Product> products = productService.searchProducts(range, searchCriteria);
+        final List<ProductResponse> productResponseList = mapAll(products, ProductResponse.class);
+        final ProductListResponse response = new ProductListResponse();
+        response.setProducts(productResponseList);
+        return ResponseEntity.ok(response);
+    }
+
+    @ApiOperation(value = "Update a product (ADMIN)", tags = {CATEGORIES})
+    @ApiResponses({@ApiResponse(code = SC_OK, message = SUCCESSFUL_OPERATION),
+            @ApiResponse(code = SC_BAD_REQUEST, message = INVALID_PARAMETERS),
+            @ApiResponse(code = SC_FORBIDDEN, message = FORBIDDEN),
+            @ApiResponse(code = SC_UNAUTHORIZED, message = UNAUTHORISED),
+            @ApiResponse(code = SC_NOT_FOUND, message = NOT_FOUND),
+            @ApiResponse(code = SC_CONFLICT, message = EXISTING_CATEGORY)})
+    @PutMapping(value = "/products/{categoryId}/{productId}", produces = JSON)
+    @PreAuthorize(HAS_ADMINISTRATOR_ROLE)
+    public ResponseEntity<ProductResponse> updateProduct(
+            @ApiParam(required = true) @RequestHeader(TOKEN_HEADER) String authorization,
+            @PathVariable(value = "categoryId") long categoryId,
+            @PathVariable(value = PRODUCT_ID) long productId,
+            @Valid @RequestBody ProductRequest productRequest) {
+        final Category category = categoryService.getCategoryById(categoryId);
+        final Product product = productService.getProductById(productId);
+        product.setCategory(category);
+        final Product updatedProduct = productService.updateProduct(product, productRequest);
+        final ProductResponse response = map(updatedProduct, ProductResponse.class);
+        return ResponseEntity.ok(response);
+    }
+
+    @ApiOperation(value = "Add photo to product (ADMIN)", tags = {CATEGORIES})
+    @ApiResponses({@ApiResponse(code = SC_OK, message = SUCCESSFUL_OPERATION),
+            @ApiResponse(code = SC_FORBIDDEN, message = FORBIDDEN),
+            @ApiResponse(code = SC_BAD_REQUEST, message = INVALID_PARAMETERS),
+            @ApiResponse(code = SC_NOT_FOUND, message = NOT_FOUND)})
+    @PutMapping(value = "/products/{productId}/photo", produces = JSON)
+    @PreAuthorize(HAS_ADMINISTRATOR_ROLE)
+    public ResponseEntity<ProductResponse> addPhotoToProduct(
+            @PathVariable(value = PRODUCT_ID) long id,
+            @Valid @RequestBody PhotoRequest photoRequest) {
+        final Product product = productService.getProductById(id);
+        final Photo photo = Photo.builder()
+                .imageableType(ImageType.PRODUCT)
+                .imageableId(id)
+                .url(photoRequest.getUrl())
+                .filesize(photoRequest.getFilesize())
+                .width(0)
+                .height(0)
+                .position(1)
+                .quantity(1)
+                .build();
+        photoService.savePhoto(photo);
+        final ProductResponse response = map(product, ProductResponse.class);
+        final List<Photo> photos = photoService.getPhotos(id, ImageType.PRODUCT);
+        final List<PhotoResponse> photoResponses = mapAll(photos, PhotoResponse.class);
+        response.setPhotos(photoResponses);
+        return ResponseEntity.ok(response);
+    }
+
+    @ApiOperation(value = "Delete photo from product (ADMIN)", tags = {CATEGORIES})
+    @ApiResponses({@ApiResponse(code = SC_OK, message = SUCCESSFUL_OPERATION),
+            @ApiResponse(code = SC_FORBIDDEN, message = FORBIDDEN),
+            @ApiResponse(code = SC_BAD_REQUEST, message = INVALID_PARAMETERS),
+            @ApiResponse(code = SC_NOT_FOUND, message = NOT_FOUND)})
+    @DeleteMapping(value = "/products/{productId}/photo/{photoId}", produces = JSON)
+    @PreAuthorize(HAS_ADMINISTRATOR_ROLE)
+    public ResponseEntity<ProductResponse> deletePhotoFromProduct(
+            @PathVariable(value = PRODUCT_ID) long id,
+            @PathVariable(value = "photoId") long photoId) {
+        final Product product = productService.getProductById(id);
+        photoService.deletePhoto(photoId);
+        final ProductResponse response = map(product, ProductResponse.class);
+        final List<Photo> photos = photoService.getPhotos(id, ImageType.PRODUCT);
+        final List<PhotoResponse> photoResponses = mapAll(photos, PhotoResponse.class);
+        response.setPhotos(photoResponses);
+        return ResponseEntity.ok(response);
+    }
+
+    @ApiOperation(value = "Delete a product (ADMIN)", tags = {CATEGORIES})
+    @ApiResponses({@ApiResponse(code = SC_OK, message = SUCCESSFUL_OPERATION),
+            @ApiResponse(code = SC_BAD_REQUEST, message = INVALID_PARAMETERS),
+            @ApiResponse(code = SC_FORBIDDEN, message = FORBIDDEN),
+            @ApiResponse(code = SC_UNAUTHORIZED, message = UNAUTHORISED),
+            @ApiResponse(code = SC_NOT_FOUND, message = NOT_FOUND)})
+    @DeleteMapping(value = "/products/{productId}", produces = JSON)
+    @PreAuthorize(HAS_ADMINISTRATOR_ROLE)
+    public ResponseEntity<Void> deleteProduct(
+            @ApiParam(required = true) @RequestHeader(TOKEN_HEADER) String authorization,
+            @PathVariable(value = PRODUCT_ID) long productId) {
+        productService.deleteProduct(productId);
+        return new ResponseEntity<>(HttpStatus.OK);
+    }
+
+    @ApiOperation(value = "View a product (ADMIN)", tags = {CATEGORIES})
+    @ApiResponses({@ApiResponse(code = SC_OK, message = SUCCESSFUL_OPERATION),
+            @ApiResponse(code = SC_FORBIDDEN, message = FORBIDDEN),
+            @ApiResponse(code = SC_BAD_REQUEST, message = INVALID_PARAMETERS),
+            @ApiResponse(code = SC_NOT_FOUND, message = NOT_FOUND)})
+    @GetMapping(value = "/products/{productId}", produces = JSON)
+    @PreAuthorize(HAS_ADMINISTRATOR_ROLE)
+    public ResponseEntity<ProductResponse> getProduct(@PathVariable(value = PRODUCT_ID) long id) {
+        final Product product = productService.getProductById(id);
+        final ProductResponse response = map(product, ProductResponse.class);
+        final List<Photo> photos = photoService.getPhotos(id, ImageType.PRODUCT);
+        final List<PhotoResponse> photoResponses = mapAll(photos, PhotoResponse.class);
+        response.setPhotos(photoResponses);
+        return ResponseEntity.ok(response);
+    }
+
+    @ApiOperation(value = "Retrieve a list of products by category id(ADMIN)", tags = {CATEGORIES})
+    @ApiResponses({@ApiResponse(code = SC_OK, message = SUCCESSFUL_OPERATION),
+            @ApiResponse(code = SC_FORBIDDEN, message = FORBIDDEN),
+            @ApiResponse(code = SC_BAD_REQUEST, message = INVALID_PARAMETERS),
+            @ApiResponse(code = SC_UNAUTHORIZED, message = UNAUTHORISED)})
+    @GetMapping(value = "/products/list/{categoryId}", produces = JSON)
+    @PreAuthorize(HAS_ADMINISTRATOR_ROLE)
+    public ResponseEntity<ProductListResponse> listProductsByCategory(
+            @ApiParam(required = true) @RequestHeader(TOKEN_HEADER) String authorization,
+            @PathVariable(value = "categoryId") long categoryId) {
+        final List<Product> products = productService.getProducts(categoryId);
+        final List<ProductResponse> productResponseList = mapAll(products, ProductResponse.class);
+        final ProductListResponse response = new ProductListResponse();
+        response.setProducts(productResponseList);
+        return ResponseEntity.ok(response);
+    }
+
+    @ApiOperation(value = "Retrieve a list of all products (ADMIN)", tags = {CATEGORIES})
+    @ApiResponses({@ApiResponse(code = SC_OK, message = SUCCESSFUL_OPERATION),
+            @ApiResponse(code = SC_FORBIDDEN, message = FORBIDDEN),
+            @ApiResponse(code = SC_BAD_REQUEST, message = INVALID_PARAMETERS),
+            @ApiResponse(code = SC_UNAUTHORIZED, message = UNAUTHORISED)})
+    @GetMapping(value = "/products/listAll/", produces = JSON)
+    @PreAuthorize(HAS_ADMINISTRATOR_ROLE)
+    public ResponseEntity<ProductListResponse> listAllProducts(
+            @ApiParam(required = true) @RequestHeader(TOKEN_HEADER) String authorization) {
+        final List<Product> products = productService.getProducts();
+        final List<ProductResponse> productResponseList = mapAll(products, ProductResponse.class);
+        final ProductListResponse response = new ProductListResponse();
+        response.setProducts(productResponseList);
+        return ResponseEntity.ok(response);
+    }
+
+    @ApiOperation(value = "Retrieve a paginated list of products (ADMIN)", tags = {CATEGORIES})
+    @ApiResponses({@ApiResponse(code = SC_OK, message = SUCCESSFUL_OPERATION),
+            @ApiResponse(code = SC_FORBIDDEN, message = FORBIDDEN),
+            @ApiResponse(code = SC_BAD_REQUEST, message = INVALID_PARAMETERS),
+            @ApiResponse(code = SC_UNAUTHORIZED, message = UNAUTHORISED)})
+    @GetMapping(value = "/products/list/", produces = JSON)
+    @PreAuthorize(HAS_ADMINISTRATOR_ROLE)
+    public ResponseEntity<ProductListResponse> listProducts(
+            @ApiParam(required = true) @RequestHeader(TOKEN_HEADER) String authorization,
+            @ApiParam(value = "Offset value", defaultValue = "0")
+            @RequestParam(value = "offset", required = false, defaultValue = "0") int offset,
+            @ApiParam(value = "Limit of page size.", defaultValue = "25")
+            @RequestParam(required = false, defaultValue = "25") int limit,
+            @ApiParam("Name of the field to be sorted.") @RequestParam(required = false) String sortField,
+            @ApiParam("Sort order, available values are: asc, desc.")
+            @RequestParam(required = false) String sortDirection) {
+        final Sort sort = StringUtils.isEmpty(sortField) || StringUtils.isEmpty(sortDirection)
+                ? new Sort(Direction.ASC, "name")
+                : new Sort(Direction.fromString(sortDirection), sortField);
+        final Range range = new Range(offset, limit, sort);
+        final List<Product> products = productService.getProducts(range);
+        final long count = productService.getProductsCount();
+        final List<ProductResponse> productResponseList = mapAll(products, ProductResponse.class);
+        final ProductListResponse response = new ProductListResponse(productResponseList, count);
+        return ResponseEntity.ok(response);
+    }
+}
